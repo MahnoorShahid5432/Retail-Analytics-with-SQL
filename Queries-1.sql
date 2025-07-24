@@ -1,0 +1,202 @@
+USE TOYSTORE_INT;
+
+-- 1. What is the total revenue generated from all orders?
+SELECT
+  SUM(SALES) AS TotalRevenue
+FROM
+  ORDERSLINES;
+
+
+-- 2. Which are the top 3 selling products lines?
+SELECT
+  PRODUCTLINE,
+  SUM(QUANTITYORDERED) AS ItemsSold
+FROM
+  ORDERSLINES
+  INNER JOIN PRODUCTS ON ORDERSLINES.PRODUCTCODE = PRODUCTS.PRODUCTCODE
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 3;
+
+
+-- 3. What is the average order size (quantity of products per order)?
+
+SELECT
+  AVG(t.ItemsPerOrder) AS AvgOrderSize
+FROM
+  (SELECT
+    ORDERNUMBER,
+    SUM(QUANTITYORDERED) AS ItemsPerOrder
+  FROM
+    ORDERSLINES
+  GROUP BY 1) t;
+
+
+-- 4. What is the total revenue generated from each product line?
+SELECT
+  PRODUCTS.PRODUCTLINE,
+  SUM(SALES) AS TotalRevenue
+FROM
+  ORDERSLINES
+  INNER JOIN PRODUCTS ON ORDERSLINES.PRODUCTCODE = PRODUCTS.PRODUCTCODE
+GROUP BY 1;
+
+
+
+-- 5. How many orders have been shipped to each country?
+SELECT
+  CUSTOMERS.COUNTRY,
+  COUNT(*) AS OrdersCount
+FROM
+  ORDERS
+  INNER JOIN CUSTOMERS ON ORDERS.CUSTOMERID = CUSTOMERS.CUSTOMERID
+GROUP BY 1;
+
+-- 6. What are the top 5 customers for each productline for each year
+SELECT
+	*
+FROM
+	(SELECT
+		YEAR(ORDERS.ORDERDATE),
+		CUSTOMERS.CUSTOMERID,
+		CUSTOMERS.CUSTOMERNAME,
+		PRODUCTS.PRODUCTLINE,
+		SUM(ORDERSLINES.QUANTITYORDERED) AS TotalQtyOrdered,
+		RANK() OVER (
+				PARTITION BY PRODUCTS.PRODUCTLINE, YEAR(ORDERS.ORDERDATE)
+				ORDER BY SUM(ORDERSLINES.QUANTITYORDERED) DESC
+			) AS RankSales
+	FROM
+		CUSTOMERS
+		INNER JOIN ORDERS ON CUSTOMERS.CUSTOMERID = ORDERS.CUSTOMERID
+		INNER JOIN ORDERSLINES ON ORDERS.ORDERNUMBER = ORDERSLINES.ORDERNUMBER
+		INNER JOIN PRODUCTS ON ORDERSLINES.PRODUCTCODE = PRODUCTS.PRODUCTCODE
+	GROUP BY 1, 2, 3, 4) t
+WHERE
+	t.RankSales < 5
+;
+
+-- 7 Number of customers who bought items in range 1-100, 100-1000, 1000+ per year per country. 
+SELECT
+	PRODUCTLINE,
+    YEAR,
+    COUNTRY,
+    CASE
+		WHEN TotalQtyOrdered > 500 THEN '500+'
+        WHEN TotalQtyOrdered > 100 THEN '100+'
+        WHEN TotalQtyOrdered > 10 THEN '10+'
+        ELSE 'Less than 10'
+	END AS SalesBracket,
+    COUNT(*) AS CustomersCount    
+FROM
+	(SELECT
+		YEAR(ORDERS.ORDERDATE) AS YEAR,
+		CUSTOMERS.CUSTOMERID,
+		CUSTOMERS.CUSTOMERNAME,
+        CUSTOMERS.COUNTRY,
+		PRODUCTS.PRODUCTLINE,
+		SUM(ORDERSLINES.QUANTITYORDERED) AS TotalQtyOrdered
+	FROM
+		CUSTOMERS
+		INNER JOIN ORDERS ON CUSTOMERS.CUSTOMERID = ORDERS.CUSTOMERID
+		INNER JOIN ORDERSLINES ON ORDERS.ORDERNUMBER = ORDERSLINES.ORDERNUMBER
+		INNER JOIN PRODUCTS ON ORDERSLINES.PRODUCTCODE = PRODUCTS.PRODUCTCODE
+	GROUP BY 1, 2, 3, 4, 5) t
+GROUP BY 1, 2, 3, 4;
+
+
+-- 8. What is the total potential revenue loss (difference between MSRP and actual sales price) for
+-- each product line, and which product line has the highest percentage revenue loss?
+SELECT
+  PRODUCTS.PRODUCTLINE,
+  SUM(ORDERSLINES.QUANTITYORDERED * (PRODUCTS.MSRP - ORDERSLINES.PRICEEACH)) AS TotalLoss
+FROM
+  ORDERSLINES
+  INNER JOIN PRODUCTS ON ORDERSLINES.PRODUCTCODE = PRODUCTS.PRODUCTCODE
+GROUP BY 1
+ORDER BY 2 ASC
+LIMIT 1;
+
+
+-- 9. Provide a list of all the different customer’s name and country combinations where orders were
+-- placed, along with the total sales revenue for each combination. The customer’s name and
+-- country should be output as a single column formatted as Customer Name (country).
+
+SELECT
+  CONCAT(
+    CUSTOMERNAME,
+    ' ',
+    ADDRESSLINE1,
+    ' ',
+    IFNULL(ADDRESSLINE2, '<missing-address-2>'),
+    ' ',
+    POSTALCODE,
+    ' ',
+    COUNTRY
+  ) AS CustomerNameWithAddress,
+  COUNT(DISTINCT ORDERS.ORDERNUMBER) AS OrdersCount,
+  SUM(ORDERSLINES.SALES) AS TotalRevenue
+FROM
+  ORDERS
+  INNER JOIN ORDERSLINES ON ORDERS.ORDERNUMBER = ORDERSLINES.ORDERNUMBER
+  INNER JOIN CUSTOMERS ON ORDERS.CUSTOMERID = CUSTOMERS.CUSTOMERID
+GROUP BY 1
+ORDER BY 3 DESC;
+
+
+
+-- 10. Create a report that categorizes total sales revenue for each product line into custom bands
+-- (Under 2,000, 2,000-5,000, 5,001-7,500, 7,501-10,000) and shows the number of products sold in
+-- each band.
+SELECT
+  PRODUCTS.PRODUCTLINE,
+  CASE
+	WHEN ORDERSLINES.SALES > 9999 THEN '9999 or more'
+	WHEN ORDERSLINES.SALES > 7500 THEN '7500-9999'
+	WHEN ORDERSLINES.SALES > 5000 THEN '5001-7500'
+	ELSE '5000 or less'
+  END AS SalesBracket,
+  COUNT(*) OrdersCount
+FROM
+  ORDERSLINES
+  INNER JOIN PRODUCTS ON ORDERSLINES.PRODUCTCODE = PRODUCTS.PRODUCTCODE
+GROUP BY 1, 2
+ORDER BY 1 ASC, 2 DESC;
+
+
+
+-- 11. Find out what is the number of items for each product line in each status (shipped, cancelled,
+-- etc.) For each country.
+SELECT
+  SHIPMENTS.STATUS,
+  SHIPMENTS.COUNTRY,
+  PRODUCTS.PRODUCTLINE,
+  SUM(QUANTITYORDERED)
+FROM
+  ORDERSLINES
+  INNER JOIN PRODUCTS ON ORDERSLINES.PRODUCTCODE = PRODUCTS.PRODUCTCODE
+  INNER JOIN SHIPMENTS ON ORDERSLINES.ORDERNUMBER = SHIPMENTS.ORDERNUMBER
+GROUP BY 1,2,3;
+
+
+-- 12 Which products, along with their product line and code, have the largest number of large deals in each
+-- country
+SELECT * FROM DEALS;
+
+SELECT
+	DEALSIZE,
+    PRODUCTS.PRODUCTLINE,
+    COUNT(*) AS NumberOfLargeDeals,
+    SUM(SALES) AS TotalSalesAsLargeDeals
+FROM
+	ORDERSLINES
+    INNER JOIN PRODUCTS ON ORDERSLINES.PRODUCTCODE = PRODUCTS.PRODUCTCODE
+    INNER JOIN DEALS ON
+		(ORDERSLINES.ORDERNUMBER = DEALS.ORDERNUMBER
+		 AND ORDERSLINES.ORDERLINENUMBER = DEALS.ORDERLINENUMBER)
+WHERE
+	DEALSIZE = 'Large'
+GROUP BY 1, 2
+ORDER BY 3 DESC, 4 DESC;
+
+
